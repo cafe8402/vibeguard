@@ -9,6 +9,8 @@ export type ViewType =
 
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'safe';
 
+export type SourceContext = 'runtime' | 'test' | 'example' | 'documentation' | 'tooling';
+
 export type Category = 
   | 'credential' 
   | 'secret' 
@@ -65,6 +67,7 @@ export interface SecurityIssue {
   recommendation?: string;
   evidence?: string;
   ruleId?: string;
+  sourceContext?: SourceContext;
   aiSuggestedFix?: {
     summary: string;
     envVarsNeeded?: string[];

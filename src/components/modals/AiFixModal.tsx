@@ -166,9 +166,9 @@ export const AiFixModal: React.FC<AiFixModalProps> = ({
                 </p>
                 <div className="bg-slate-900 text-slate-100 p-4 rounded-lg font-mono text-[12px] overflow-x-auto leading-relaxed">
                   <span className="text-slate-400"># .env (로컬 및 배포 서버 시크릿)</span><br />
-                  ADMIN_PASSWORD="YourVeryStrongSecretPassword_2026!"<br />
+                  ADMIN_PASSWORD="[VALUE_FROM_ENV]"<br />
                   OPENAI_API_KEY="[REDACTED_API_KEY]"<br />
-                  DB_PASSWORD="SuperSecretDbPassword#99"
+                  DB_PASSWORD="[VALUE_FROM_ENV]"
                 </div>
               </div>
             </div>

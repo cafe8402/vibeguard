@@ -38,6 +38,22 @@ async function run() {
   assert(extensionResult.issues.some((issue) => issue.ruleId === 'EXT_ALL_URLS'), 'Broad extension permission rule did not fire');
   assert(extensionResult.issues.some((issue) => issue.ruleId === 'EXT_SENSITIVE_PERMISSION'), 'Sensitive extension permission rule did not fire');
 
+  const mixedZip = new JSZip();
+  mixedZip.file('node_modules/vendor/index.js', 'eval(userInput);');
+  mixedZip.file('dist/bundle.js', 'eval(userInput);');
+  mixedZip.file('tests/security.test.js', 'const token = "dummy_token_for_test_only";\npowershell.exe -EncodedCommand SQBFAFgA;');
+  mixedZip.file('tests/secret.test.js', `const apiKey = "${'sk-' + 'proj-' + 'abcdefghijklmnopqrstuvwxyz123456'}";`);
+  mixedZip.file('src/app.js', 'const ready = true;');
+  const mixedBlob = await mixedZip.generateAsync({ type: 'uint8array' });
+  const mixed = new File([mixedBlob], 'mixed-project.zip', { type: 'application/zip' });
+  const mixedResult = await scanArtifacts([mixed], 'internal');
+  assert(mixedResult.ignoredFiles === 2, 'Generated and dependency files were not ignored');
+  const contextualCommand = mixedResult.issues.find((issue) => issue.ruleId === 'SCRIPT_ENCODED_COMMAND');
+  assert(contextualCommand?.sourceContext === 'test' && contextualCommand.severity === 'low', 'Test command was not downgraded to a reference');
+  assert(!mixedResult.issues.some((issue) => issue.ruleId === 'SECRET_CREDENTIAL'), 'Obvious placeholder credential produced an issue');
+  const realTestSecret = mixedResult.issues.find((issue) => issue.ruleId === 'SECRET_API_KEY');
+  assert(realTestSecret?.sourceContext === 'test' && realTestSecret.severity === 'critical', 'Real-looking secret in tests must remain actionable');
+
   const env = new File(['PUBLIC_URL=https://intranet.example\nAPP_MODE=internal\nFEATURE_FLAG=true\n'], '.env', { type: 'text/plain' });
   const envResult = await scanArtifacts([env], 'internal');
   assert(envResult.issues.filter((issue) => issue.ruleId === 'ENV_INCLUDED').length === 1, '.env should create one file-level warning');
@@ -52,7 +68,7 @@ async function run() {
   const elapsedMs = Math.round(performance.now() - startedAt);
   assert(largeResult.scannedFiles === 1 && largeResult.issues.length === 0, 'Large file scan failed');
 
-  console.log(`Scanner checks passed: web=${webResult.issues.length}, script=${scriptResult.issues.length}, extension=${extensionResult.issues.length}, env=${envResult.issues.length}, clean=0, large=12MB/${elapsedMs}ms`);
+  console.log(`Scanner checks passed: web=${webResult.issues.length}, script=${scriptResult.issues.length}, extension=${extensionResult.issues.length}, mixed=${mixedResult.issues.length}/ignored=${mixedResult.ignoredFiles}, env=${envResult.issues.length}, clean=0, large=12MB/${elapsedMs}ms`);
 }
 
 run().catch((error) => {

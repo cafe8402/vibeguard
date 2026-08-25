@@ -16,7 +16,7 @@ export const mockIssueAdminPassword: SecurityIssue = {
       { num: 35, code: '// Initialize admin module' },
       { num: 36, code: 'function initializeAdmin() {' },
       { num: 37, code: '    let config = loadConfig();' },
-      { num: 38, code: 'const ADMIN_PASSWORD = "admin1234";', highlight: true, comment: '// ← 하드코딩된 크리덴셜 감지됨' },
+      { num: 38, code: 'const ADMIN_PASSWORD = "[DEMO_PASSWORD]";', highlight: true, comment: '// ← 하드코딩된 크리덴셜 감지됨' },
       { num: 39, code: ' ' },
       { num: 40, code: "    if (config.authMode === 'local') {" },
       { num: 41, code: '        authenticate(ADMIN_PASSWORD);' },

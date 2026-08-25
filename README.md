@@ -15,6 +15,9 @@ AI로 만든 웹, Windows 스크립트, 브라우저 확장 프로그램 소스�
 - AI 수정 프롬프트 복사
 - 수정 전후 재점검 결과 비교
 - 파일 용량 제한 없음
+- 외부 라이브러리와 빌드 산출물 자동 제외
+- 테스트·예제·문서·검사 도구의 참고 항목 별도 분류
+- 명백한 placeholder 값은 오탐에서 제외하고 실제 형태의 비밀값은 테스트 코드에서도 경고
 
 ## 지원 형식
 
@@ -48,6 +51,7 @@ npm run dev
 ```bash
 npm run lint
 npm run test:scanner
+npm run scan:self
 npm run build
 ```
 

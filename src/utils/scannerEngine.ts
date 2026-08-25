@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import { Category, SecurityIssue, Severity } from '../types';
+import { Category, SecurityIssue, Severity, SourceContext } from '../types';
 
 export type ArtifactUsage = 'personal' | 'internal' | 'external';
 
@@ -9,6 +9,8 @@ export interface ScanResult {
   scannedFiles: number;
   completedFiles: number;
   skippedFiles: number;
+  ignoredFiles: number;
+  contextualIssues: number;
   score: number;
   issues: SecurityIssue[];
   topActions: SecurityIssue[];
@@ -28,6 +30,15 @@ const SUPPORTED_EXTENSIONS = [
   '.env', '.bat', '.cmd', '.ps1', '.yml', '.yaml',
 ];
 
+const IGNORED_PATH_SEGMENTS = new Set([
+  'node_modules', '.git', 'dist', 'build', 'coverage', '.next', '.nuxt',
+  'out', 'vendor', 'target', '__pycache__', '.cache', '.turbo',
+]);
+
+const IGNORED_FILENAMES = new Set([
+  'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lock',
+]);
+
 const severityWeight: Record<Severity, number> = {
   critical: 22,
   high: 12,
@@ -46,6 +57,7 @@ export async function scanArtifacts(
   const readable: ReadableArtifact[] = [];
   let discoveredFiles = 0;
   let skippedFiles = 0;
+  let ignoredFiles = 0;
 
   for (const file of files) {
     if (file.name.toLowerCase().endsWith('.zip')) {
@@ -54,6 +66,10 @@ export async function scanArtifacts(
       discoveredFiles += entries.length;
 
       for (const entry of entries) {
+        if (shouldIgnorePath(entry.name)) {
+          ignoredFiles += 1;
+          continue;
+        }
         if (!isReadableCode(entry.name)) {
           skippedFiles += 1;
           continue;
@@ -68,11 +84,16 @@ export async function scanArtifacts(
     }
 
     discoveredFiles += 1;
+    const relativeName = file.webkitRelativePath || file.name;
+    if (shouldIgnorePath(relativeName)) {
+      ignoredFiles += 1;
+      continue;
+    }
     if (!isReadableCode(file.name)) {
       skippedFiles += 1;
       continue;
     }
-    readable.push({ name: file.name, content: await file.text() });
+    readable.push({ name: relativeName, content: await file.text() });
   }
 
   if (readable.length === 0) {
@@ -86,6 +107,7 @@ export async function scanArtifacts(
   );
 
   const scorePenalty = deduped.reduce((sum, issue) => {
+    if (!isScoreRelevant(issue)) return sum;
     const usageMultiplier = usage === 'external' ? 1.15 : usage === 'internal' ? 1 : 0.85;
     const confidenceMultiplier = issue.confidence === 'low' ? 0.6 : issue.confidence === 'medium' ? 0.85 : 1;
     return sum + severityWeight[issue.severity] * usageMultiplier * confidenceMultiplier;
@@ -93,6 +115,7 @@ export async function scanArtifacts(
   const score = Math.max(18, Math.min(96, Math.round(96 - scorePenalty)));
   const detectedTypes = [...new Set(readable.map(({ name }) => classifyType(name)))];
   const highConfidenceCount = deduped.filter((issue) => issue.confidence === 'high').length;
+  const contextualIssues = deduped.filter((issue) => issue.sourceContext && issue.sourceContext !== 'runtime').length;
 
   return {
     filename: files.length === 1 ? files[0].name : `${files.length}개 파일`,
@@ -100,12 +123,14 @@ export async function scanArtifacts(
     scannedFiles: readable.length,
     completedFiles: readable.length,
     skippedFiles,
+    ignoredFiles,
+    contextualIssues,
     score,
     issues: deduped,
-    topActions: deduped.filter((issue) => issue.severity !== 'low').slice(0, 3),
+    topActions: deduped.filter((issue) => issue.severity !== 'low' && isScoreRelevant(issue)).slice(0, 3),
     detectedTypes,
     usage,
-    coverageText: `읽을 수 있는 코드 ${readable.length}개 분석${skippedFiles ? ` · 분석 대상이 아닌 파일 ${skippedFiles}개 제외` : ''}`,
+    coverageText: `읽을 수 있는 코드 ${readable.length}개 분석${ignoredFiles ? ` · 외부 라이브러리·빌드 파일 ${ignoredFiles}개 제외` : ''}${skippedFiles ? ` · 분석 대상이 아닌 파일 ${skippedFiles}개 제외` : ''}`,
     overallConfidence: deduped.length === 0 ? 'medium' : highConfidenceCount >= Math.ceil(deduped.length / 2) ? 'high' : 'medium',
   };
 }
@@ -119,6 +144,27 @@ function isReadableCode(filename: string) {
   const lower = filename.toLowerCase();
   const base = lower.split('/').pop() || lower;
   return SUPPORTED_EXTENSIONS.some((extension) => lower.endsWith(extension)) || base.startsWith('.env');
+}
+
+function shouldIgnorePath(filename: string) {
+  const normalized = filename.replace(/\\/g, '/').toLowerCase();
+  const parts = normalized.split('/').filter(Boolean);
+  const base = parts[parts.length - 1] || '';
+  return parts.some((part) => IGNORED_PATH_SEGMENTS.has(part))
+    || IGNORED_FILENAMES.has(base)
+    || /\.min\.(js|css)$/.test(base)
+    || base.endsWith('.map');
+}
+
+function classifySourceContext(filename: string): SourceContext {
+  const normalized = filename.replace(/\\/g, '/').toLowerCase();
+  const parts = normalized.split('/').filter(Boolean);
+  const base = parts[parts.length - 1] || '';
+  if (parts.some((part) => ['test', 'tests', '__tests__', 'spec', 'specs'].includes(part)) || /(^|[._-])(test|spec)([._-]|$)/.test(base)) return 'test';
+  if (parts.some((part) => ['fixture', 'fixtures', 'qa-fixtures', 'example', 'examples', 'sample', 'samples', 'demo', 'demos', 'mock', 'mocks'].includes(part)) || /^(mock|sample|example|demo)/.test(base)) return 'example';
+  if (parts.some((part) => ['doc', 'docs', 'documentation'].includes(part)) || /\.(md|mdx)$/.test(base)) return 'documentation';
+  if (/(scanner|security[-_]?rules?|audit[-_]?rules?)/.test(base)) return 'tooling';
+  return 'runtime';
 }
 
 function classifyType(filename: string) {
@@ -144,11 +190,13 @@ function analyzeArtifact(artifact: ReadableArtifact, usage: ArtifactUsage) {
       issues.push(createIssue({ ruleId: 'SECRET_PRIVATE_KEY', title: 'Private Key가 파일에 포함되어 있습니다', technicalTitle: 'Embedded private key', severity: 'critical', confidence: 'high', category: 'secret', artifact, lines, lineNumber, explanation: '이 키를 가진 사람은 서버나 서비스에 본인인 것처럼 접근할 수 있습니다.', recommendation: '키를 즉시 폐기하고 새로 발급한 뒤, 코드 밖의 비밀 저장소에서 관리하세요.' }));
     }
 
-    if (/(sk-(proj-)?[a-zA-Z0-9_-]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{30,})/.test(line)) {
+    const apiKeyCandidate = line.match(/(sk-(proj-)?[a-zA-Z0-9_-]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{30,})/)?.[0];
+    if (apiKeyCandidate && !isObviousPlaceholder(apiKeyCandidate)) {
       issues.push(createIssue({ ruleId: 'SECRET_API_KEY', title: 'API Key가 코드에 포함되어 있습니다', technicalTitle: 'Hardcoded API key', severity: 'critical', confidence: 'high', category: 'secret', artifact, lines, lineNumber, explanation: '파일을 전달받은 사람이 이 키를 복사해 서비스를 사용하거나 비용을 발생시킬 수 있습니다.', recommendation: '노출된 키를 폐기하고 환경 변수나 회사의 비밀 저장소로 옮기세요.' }));
     }
 
-    if (/\b(password|passwd|admin_password|db_password|secret|token)\b\s*[:=]\s*["'][^"']{5,}["']/i.test(line) && !/process\.env|import\.meta\.env|os\.environ/i.test(line)) {
+    const credentialMatch = line.match(/\b(password|passwd|admin_password|db_password|secret|token)\b\s*[:=]\s*["']([^"']{5,})["']/i);
+    if (credentialMatch && !isObviousPlaceholder(credentialMatch[2]) && !/process\.env|import\.meta\.env|os\.environ/i.test(line)) {
       issues.push(createIssue({ ruleId: 'SECRET_CREDENTIAL', title: '비밀번호 또는 토큰이 코드에 직접 적혀 있습니다', technicalTitle: 'Hardcoded credential', severity: 'critical', confidence: 'high', category: 'credential', artifact, lines, lineNumber, explanation: '코드를 열어보는 사람은 누구나 이 값을 확인하고 악용할 수 있습니다.', recommendation: '값을 코드에서 제거하고 환경 변수로 불러오도록 변경하세요.' }));
     }
 
@@ -178,11 +226,11 @@ function analyzeArtifact(artifact: ReadableArtifact, usage: ArtifactUsage) {
       issues.push(createIssue({ ruleId: 'SCRIPT_SYSTEM_CHANGE', title: 'PC의 중요한 설정을 변경합니다', technicalTitle: 'System configuration modification', severity: 'high', confidence: 'high', category: 'dangerous', artifact, lines, lineNumber, explanation: '레지스트리, 서비스 또는 방화벽 설정을 바꾸면 PC 전체 동작에 영향을 줄 수 있습니다.', recommendation: '변경 목적과 되돌리는 방법을 확인하고, 사내 공유 전 담당자의 검토를 받으세요.' }));
     }
 
-    if (/\b(del|erase|rmdir|rd)\b.*?[/\\][sq]|Remove-Item\b.*?-Recurse|rm\s+-rf/i.test(line)) {
+    if (/\b(del|erase|rmdir|rd)\b.*?[/\\]s\b|Remove-Item\b.*?-Recurse|rm\s+-rf/i.test(line)) {
       issues.push(createIssue({ ruleId: 'SCRIPT_DESTRUCTIVE_DELETE', title: '여러 파일을 한 번에 삭제하는 명령이 있습니다', technicalTitle: 'Recursive file deletion', severity: 'high', confidence: 'medium', category: 'dangerous', artifact, lines, lineNumber, explanation: '경로가 잘못 지정되면 업무 파일이나 PC 설정이 함께 삭제될 수 있습니다.', recommendation: '삭제 대상을 명확한 폴더로 제한하고 실행 전에 사용자 확인을 받도록 변경하세요.' }));
     }
 
-    if (lower.includes('.env') && trimmed && !trimmed.startsWith('#') && !issues.some((issue) => issue.ruleId === 'ENV_INCLUDED')) {
+    if (isSensitiveEnvFile(artifact.name) && trimmed && !trimmed.startsWith('#') && !issues.some((issue) => issue.ruleId === 'ENV_INCLUDED')) {
       issues.push(createIssue({ ruleId: 'ENV_INCLUDED', title: '환경 설정 파일이 결과물에 포함되어 있습니다', technicalTitle: 'Environment file included', severity: 'high', confidence: 'high', category: 'secret', artifact, lines, lineNumber, explanation: '환경 설정 파일에는 API Key, 비밀번호, 내부 서버 주소가 포함될 수 있습니다.', recommendation: '.env 파일을 공유 ZIP에서 제외하고 .env.example만 제공하세요.' }));
     }
   });
@@ -230,6 +278,11 @@ interface IssueInput {
 }
 
 function createIssue(input: IssueInput): SecurityIssue {
+  const sourceContext = classifySourceContext(input.artifact.name);
+  const mustStayActionable = input.category === 'secret' || input.category === 'credential';
+  const contextualReference = sourceContext !== 'runtime' && !mustStayActionable;
+  const effectiveSeverity: Severity = contextualReference ? 'low' : input.severity;
+  const effectiveConfidence = contextualReference && input.confidence === 'high' ? 'medium' : input.confidence;
   const start = Math.max(1, input.lineNumber - 2);
   const end = Math.min(input.lines.length, input.lineNumber + 2);
   const snippetLines = [];
@@ -244,9 +297,10 @@ function createIssue(input: IssueInput): SecurityIssue {
     title: input.title,
     userTitle: input.title,
     technicalTitle: input.technicalTitle,
-    severity: input.severity,
-    confidence: input.confidence,
+    severity: effectiveSeverity,
+    confidence: effectiveConfidence,
     category: input.category,
+    sourceContext,
     location: `${input.artifact.name} : ${input.lineNumber}번째 줄`,
     description: input.explanation,
     easyExplanation: input.explanation,
@@ -261,6 +315,22 @@ function createIssue(input: IssueInput): SecurityIssue {
     isResolved: false,
     aiSuggestedFix: { summary: input.recommendation, explanation: input.explanation },
   };
+}
+
+function isScoreRelevant(issue: SecurityIssue) {
+  return issue.sourceContext === 'runtime' || issue.category === 'secret' || issue.category === 'credential';
+}
+
+function isObviousPlaceholder(value: string) {
+  const normalized = value.toLowerCase().replace(/[\s_-]+/g, '');
+  return /(example|sample|dummy|fake|placeholder|redacted|notreal|testonly|demotoken|demopassword|yourkey|yourvalue|valuefromenv|changeme)/.test(normalized)
+    || /^x{8,}$/.test(normalized)
+    || /^0{8,}$/.test(normalized);
+}
+
+function isSensitiveEnvFile(filename: string) {
+  const base = filename.toLowerCase().replace(/\\/g, '/').split('/').pop() || '';
+  return base.startsWith('.env') && !/\.(example|sample|template)$/.test(base);
 }
 
 function redactSecrets(line: string, filename: string) {
@@ -297,5 +367,5 @@ function dedupeIssues(issues: SecurityIssue[]) {
 
 /** 데모 데이터가 실제 결과로 섞이지 않도록 비어 있는 호환 결과만 제공한다. */
 export function createSimulatedScan(filename = 'sample-project.zip'): ScanResult {
-  return { filename, totalFiles: 0, scannedFiles: 0, completedFiles: 0, skippedFiles: 0, score: 96, issues: [], topActions: [], detectedTypes: [], usage: 'internal', coverageText: '샘플 결과 없음', overallConfidence: 'medium' };
+  return { filename, totalFiles: 0, scannedFiles: 0, completedFiles: 0, skippedFiles: 0, ignoredFiles: 0, contextualIssues: 0, score: 96, issues: [], topActions: [], detectedTypes: [], usage: 'internal', coverageText: '샘플 결과 없음', overallConfidence: 'medium' };
 }

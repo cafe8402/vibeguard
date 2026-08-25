@@ -348,6 +348,7 @@ function ReportScreen({ result, onIssue, onRescan }: { result: ScanResult; onIss
           <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500"><span className="font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded-md">점검 완료</span><span>{result.filename}</span></div>
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight mt-2">배포 전 확인 결과</h1>
           <p className="text-sm text-slate-500 mt-1">{result.coverageText}</p>
+          {result.contextualIssues > 0 && <p className="text-xs font-semibold text-violet-700 mt-2">테스트·예제·도구 코드 참고 항목 {result.contextualIssues}개는 배포 점수에서 제외했습니다.</p>}
         </div>
         <button onClick={onRescan} className="self-start inline-flex items-center gap-2 bg-[#1E3A8A] hover:bg-blue-900 text-white text-sm font-semibold rounded-xl px-4 py-2.5"><RefreshCw size={17} /> 수정한 파일 다시 점검</button>
       </div>
@@ -400,11 +401,16 @@ function ScoreRing({ score }: { score: number }) {
 }
 
 function PriorityIssue({ issue, index, onClick }: { key?: React.Key; issue: SecurityIssue; index: number; onClick: () => void }) {
-  return <button onClick={onClick} className="w-full py-4 flex items-center gap-3 sm:gap-4 text-left group"><span className="w-8 h-8 rounded-lg bg-slate-100 text-slate-500 font-bold text-xs flex items-center justify-center shrink-0">{String(index + 1).padStart(2, '0')}</span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><SeverityBadge severity={issue.severity} /><span className="font-bold text-sm sm:text-base group-hover:text-blue-700">{issue.userTitle || issue.title}</span></div><p className="text-xs text-slate-500 mt-1 truncate">{issue.location}</p></div><ChevronRight size={19} className="text-slate-400 group-hover:text-blue-700 shrink-0" /></button>;
+  return <button onClick={onClick} className="w-full py-4 flex items-center gap-3 sm:gap-4 text-left group"><span className="w-8 h-8 rounded-lg bg-slate-100 text-slate-500 font-bold text-xs flex items-center justify-center shrink-0">{String(index + 1).padStart(2, '0')}</span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><SeverityBadge severity={issue.severity} />{issue.sourceContext && issue.sourceContext !== 'runtime' && <ContextBadge context={issue.sourceContext} />}<span className="font-bold text-sm sm:text-base group-hover:text-blue-700">{issue.userTitle || issue.title}</span></div><p className="text-xs text-slate-500 mt-1 truncate">{issue.location}</p></div><ChevronRight size={19} className="text-slate-400 group-hover:text-blue-700 shrink-0" /></button>;
 }
 
 function IssueRow({ issue, onClick }: { key?: React.Key; issue: SecurityIssue; onClick: () => void }) {
-  return <button onClick={onClick} className="w-full px-5 sm:px-6 py-4 text-left hover:bg-slate-50 transition-colors flex items-start sm:items-center gap-3"><SeverityBadge severity={issue.severity} /><div className="min-w-0 flex-1"><h3 className="font-bold text-sm">{issue.userTitle || issue.title}</h3><p className="text-xs text-slate-500 mt-1 truncate">{issue.location}</p></div><span className="hidden sm:inline text-xs text-slate-500 bg-slate-100 rounded-full px-2.5 py-1">확신도 {confidenceLabel[issue.confidence || 'medium']}</span><ChevronRight size={18} className="text-slate-400 mt-0.5 sm:mt-0" /></button>;
+  return <button onClick={onClick} className="w-full px-5 sm:px-6 py-4 text-left hover:bg-slate-50 transition-colors flex items-start sm:items-center gap-3"><SeverityBadge severity={issue.severity} /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2">{issue.sourceContext && issue.sourceContext !== 'runtime' && <ContextBadge context={issue.sourceContext} />}<h3 className="font-bold text-sm">{issue.userTitle || issue.title}</h3></div><p className="text-xs text-slate-500 mt-1 truncate">{issue.location}</p></div><span className="hidden sm:inline text-xs text-slate-500 bg-slate-100 rounded-full px-2.5 py-1">확신도 {confidenceLabel[issue.confidence || 'medium']}</span><ChevronRight size={18} className="text-slate-400 mt-0.5 sm:mt-0" /></button>;
+}
+
+function ContextBadge({ context }: { context: NonNullable<SecurityIssue['sourceContext']> }) {
+  const labels = { runtime: '실행 코드', test: '테스트', example: '예제·샘플', documentation: '문서', tooling: '검사 도구' };
+  return <span className="inline-flex text-[10px] font-bold rounded-full border border-violet-200 bg-violet-50 text-violet-700 px-2 py-0.5">{labels[context]}</span>;
 }
 
 function SeverityBadge({ severity }: { severity: Severity }) {
@@ -428,7 +434,7 @@ function DetailScreen({ issue, onBack, onCopy, onRescan }: { issue: SecurityIssu
       <button onClick={onBack} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-900"><ArrowLeft size={17} /> 결과로 돌아가기</button>
       <div className="mt-5 rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden">
         <div className="p-6 sm:p-8 border-b border-slate-200">
-          <div className="flex flex-wrap items-center gap-2"><SeverityBadge severity={issue.severity} /><span className="text-xs text-slate-500 bg-slate-100 rounded-full px-2.5 py-1">분석 확신도 {confidenceLabel[issue.confidence || 'medium']}</span></div>
+          <div className="flex flex-wrap items-center gap-2"><SeverityBadge severity={issue.severity} />{issue.sourceContext && issue.sourceContext !== 'runtime' && <ContextBadge context={issue.sourceContext} />}<span className="text-xs text-slate-500 bg-slate-100 rounded-full px-2.5 py-1">분석 확신도 {confidenceLabel[issue.confidence || 'medium']}</span></div>
           <h1 className="mt-4 text-2xl sm:text-3xl font-extrabold tracking-tight">{issue.userTitle || issue.title}</h1>
           <p className="mt-2 text-sm text-slate-500 font-mono break-all">{issue.location}</p>
         </div>
@@ -519,10 +525,12 @@ function getCounts(issues: SecurityIssue[]) {
 }
 
 function getVerdict(result: ScanResult) {
-  const counts = getCounts(result.issues);
+  const actionableIssues = result.issues.filter((issue) => issue.sourceContext === 'runtime' || issue.category === 'secret' || issue.category === 'credential');
+  const counts = getCounts(actionableIssues);
   if (counts.critical > 0) return { label: '사용 전 즉시 확인', title: '중요한 문제부터 수정해주세요', desc: `즉시 확인이 필요한 항목 ${counts.critical}개가 발견되었습니다. 공유하거나 공개하기 전에 먼저 확인하세요.`, tone: 'text-red-700 bg-red-50 border-red-200' };
   if (counts.high > 0) return { label: '수정 후 사용 권장', title: '몇 가지 수정이 필요합니다', desc: `수정이 권장되는 항목 ${counts.high}개가 있습니다. 상세 설명을 확인하고 다시 점검해주세요.`, tone: 'text-orange-700 bg-orange-50 border-orange-200' };
-  if (result.issues.length > 0) return { label: '확인 후 사용', title: '사용 목적에 맞는지 확인해주세요', desc: '치명적인 문제는 없지만 외부 통신이나 설정처럼 사용자가 판단해야 할 항목이 있습니다.', tone: 'text-amber-800 bg-amber-50 border-amber-200' };
+  if (actionableIssues.length > 0) return { label: '확인 후 사용', title: '사용 목적에 맞는지 확인해주세요', desc: '치명적인 문제는 없지만 외부 통신이나 설정처럼 사용자가 판단해야 할 항목이 있습니다.', tone: 'text-amber-800 bg-amber-50 border-amber-200' };
+  if (result.contextualIssues > 0) return { label: '실행 코드 중요 위험 미발견', title: '실행 코드에서는 중요한 위험을 찾지 못했습니다', desc: `테스트·예제·도구 코드의 참고 항목 ${result.contextualIssues}개는 배포 점수에 반영하지 않았습니다.`, tone: 'text-emerald-700 bg-emerald-50 border-emerald-200' };
   return { label: '중요 위험 미발견', title: '확인 가능한 범위에서는 양호합니다', desc: '중요한 위험 신호를 찾지 못했습니다. 다만 실행 안전성을 보장하는 결과는 아닙니다.', tone: 'text-emerald-700 bg-emerald-50 border-emerald-200' };
 }
 
