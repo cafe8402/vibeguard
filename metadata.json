@@ -1,0 +1,6 @@
+{
+  "name": "VibeGuard",
+  "description": "AI로 만든 결과물을 배포하거나 공유하기 전에 브라우저에서 점검하고 쉬운 한국어로 설명하는 도구",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
