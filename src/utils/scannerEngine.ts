@@ -187,7 +187,7 @@ function analyzeArtifact(artifact: ReadableArtifact, usage: ArtifactUsage) {
     const lineNumber = index + 1;
     const trimmed = line.trim();
 
-    if (/-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----/.test(line)) {
+    if (/-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----/.test(line) && containsRealPrivateKeyBlock(artifact.content)) {
       issues.push(createIssue({ ruleId: 'SECRET_PRIVATE_KEY', title: 'Private Key가 파일에 포함되어 있습니다', technicalTitle: 'Embedded private key', severity: 'critical', confidence: 'high', category: 'secret', artifact, lines, lineNumber, explanation: '이 키를 가진 사람은 서버나 서비스에 본인인 것처럼 접근할 수 있습니다.', recommendation: '키를 즉시 폐기하고 새로 발급한 뒤, 코드 밖의 비밀 저장소에서 관리하세요.' }));
     }
 
@@ -208,17 +208,17 @@ function analyzeArtifact(artifact: ReadableArtifact, usage: ArtifactUsage) {
 
     const xss = assessXssCandidate(line, lines, index);
     if (xss) {
-      issues.push(createIssue({ ruleId: 'DANGEROUS_XSS', title: xss.severity === 'high' ? '외부 입력이 HTML로 직접 삽입됩니다' : 'HTML로 삽입되는 값의 출처를 확인해야 합니다', technicalTitle: 'Untrusted data in HTML sink', severity: xss.severity, confidence: xss.confidence, category: 'dangerous', artifact, lines, lineNumber, explanation: xss.severity === 'high' ? '사용자 입력이 정화되지 않은 채 HTML로 들어가 화면 변조나 정보 탈취로 이어질 수 있습니다.' : 'HTML 삽입 기능이 변수값을 사용하지만, 이 줄만으로는 값의 출처를 확인할 수 없습니다.', recommendation: 'DOMPurify 같은 검증된 정화 함수를 적용하거나 textContent처럼 HTML을 해석하지 않는 방식을 사용하세요.' }));
+      issues.push(createIssue({ ruleId: 'DANGEROUS_XSS', title: xss.severity === 'high' ? '외부 입력이 HTML로 직접 삽입됩니다' : 'HTML로 삽입되는 값의 출처를 확인해야 합니다', technicalTitle: 'Untrusted data in HTML sink', severity: xss.severity, confidence: xss.confidence, contextualActionable: xss.severity === 'high', category: 'dangerous', artifact, lines, lineNumber, explanation: xss.severity === 'high' ? '사용자 입력이 정화되지 않은 채 HTML로 들어가 화면 변조나 정보 탈취로 이어질 수 있습니다.' : 'HTML 삽입 기능이 변수값을 사용하지만, 이 줄만으로는 값의 출처를 확인할 수 없습니다.', recommendation: 'DOMPurify 같은 검증된 정화 함수를 적용하거나 textContent처럼 HTML을 해석하지 않는 방식을 사용하세요.' }));
     }
 
     const evalRisk = assessEvalCandidate(line, lines, index);
     if (evalRisk) {
-      issues.push(createIssue({ ruleId: 'DANGEROUS_EVAL', title: evalRisk.severity === 'high' ? '외부 입력이 코드로 실행됩니다' : '실행되는 코드 값의 출처를 확인해야 합니다', technicalTitle: 'Dynamic code execution', severity: evalRisk.severity, confidence: evalRisk.confidence, category: 'dangerous', artifact, lines, lineNumber, explanation: 'eval에 전달되는 값이 조작되면 공격자가 원하는 코드를 실행할 수 있습니다.', recommendation: 'eval을 제거하고 허용된 동작을 명시적으로 매핑하세요.' }));
+      issues.push(createIssue({ ruleId: 'DANGEROUS_EVAL', title: evalRisk.severity === 'high' ? '외부 입력이 코드로 실행됩니다' : '실행되는 코드 값의 출처를 확인해야 합니다', technicalTitle: 'Dynamic code execution', severity: evalRisk.severity, confidence: evalRisk.confidence, contextualActionable: evalRisk.severity === 'high', category: 'dangerous', artifact, lines, lineNumber, explanation: 'eval에 전달되는 값이 조작되면 공격자가 원하는 코드를 실행할 수 있습니다.', recommendation: 'eval을 제거하고 허용된 동작을 명시적으로 매핑하세요.' }));
     }
 
     const commandRisk = assessCommandExecution(line, lines, index, artifact.name);
     if (commandRisk) {
-      issues.push(createIssue({ ruleId: 'SCRIPT_COMMAND_INJECTION', title: commandRisk.severity === 'high' ? '외부 입력이 시스템 명령으로 실행됩니다' : '시스템 명령에 사용되는 값의 출처를 확인해야 합니다', technicalTitle: 'OS command execution', severity: commandRisk.severity, confidence: commandRisk.confidence, category: 'dangerous', artifact, lines, lineNumber, explanation: commandRisk.severity === 'high' ? '사용자가 조작한 값이 명령어에 연결되어 PC에서 임의 명령이 실행될 수 있습니다.' : '명령 실행 함수가 변수를 사용하지만 현재 코드만으로 값의 출처를 확정하기 어렵습니다.', recommendation: '외부 입력을 셸 명령에 연결하지 말고, 허용 목록과 배열형 인자를 사용하는 안전한 API로 변경하세요.' }));
+      issues.push(createIssue({ ruleId: 'SCRIPT_COMMAND_INJECTION', title: commandRisk.severity === 'high' ? '외부 입력이 시스템 명령으로 실행됩니다' : '시스템 명령에 사용되는 값의 출처를 확인해야 합니다', technicalTitle: 'OS command execution', severity: commandRisk.severity, confidence: commandRisk.confidence, contextualActionable: commandRisk.severity === 'high', category: 'dangerous', artifact, lines, lineNumber, explanation: commandRisk.severity === 'high' ? '사용자가 조작한 값이 명령어에 연결되어 PC에서 임의 명령이 실행될 수 있습니다.' : '명령 실행 함수가 변수를 사용하지만 현재 코드만으로 값의 출처를 확정하기 어렵습니다.', recommendation: '외부 입력을 셸 명령에 연결하지 말고, 허용 목록과 배열형 인자를 사용하는 안전한 API로 변경하세요.' }));
     }
 
     if (sourceContext === 'runtime' && isExecutableNetworkCall(line) && /\b(fetch|axios\.(get|post|put|patch)|WebSocket)\s*\(\s*[`"']http:\/\//i.test(line) && !isLocalUrl(line)) {
@@ -231,29 +231,30 @@ function analyzeArtifact(artifact: ReadableArtifact, usage: ArtifactUsage) {
       issues.push(createIssue({ ruleId: 'NETWORK_DATA_TRANSFER', title: '내부에서 가져온 정보가 외부 서비스로 전송될 수 있습니다', technicalTitle: 'Possible internal data exfiltration', severity: 'high', confidence: 'medium', category: 'network', artifact, lines, lineNumber, explanation: '내부 API에서 읽은 값이 외부 주소의 요청 본문에 포함되어 정보가 회사 밖으로 나갈 수 있습니다.', recommendation: '전송 대상과 데이터 항목을 확인하고, 승인된 주소만 허용하며 민감정보를 제거하세요.' }));
     }
 
-    if (/localStorage\.(getItem|setItem).*?(admin|role|auth)|\b(isAdmin|adminRole)\b\s*=/.test(line)) {
+    if (isClientControlledAuthorization(line, lines, index)) {
       issues.push(createIssue({ ruleId: 'AUTH_CLIENT_SIDE', title: '관리자 권한을 브라우저에서 판단하고 있습니다', technicalTitle: 'Client-side authorization', severity: 'high', confidence: 'medium', category: 'authentication', artifact, lines, lineNumber, explanation: '브라우저의 값은 사용자가 직접 바꿀 수 있어 관리자 화면이 노출될 수 있습니다.', recommendation: '권한 확인은 서버에서 수행하고, 브라우저는 서버의 결과만 사용하도록 변경하세요.' }));
     }
 
     if (isExecutedPowerShellBypass(line, artifact.name, sourceContext)) {
-      issues.push(createIssue({ ruleId: 'SCRIPT_ENCODED_COMMAND', title: '내용을 숨긴 PowerShell 명령을 실행합니다', technicalTitle: 'Encoded PowerShell command', severity: 'critical', confidence: 'high', category: 'dangerous', artifact, lines, lineNumber, explanation: '실행 내용을 알아보기 어렵게 만든 명령은 악성 동작을 숨길 때 자주 사용됩니다.', recommendation: '공유하거나 실행하기 전에 평문 명령으로 바꾸고 동작 목적을 확인하세요.' }));
+      issues.push(createIssue({ ruleId: 'SCRIPT_ENCODED_COMMAND', title: '내용을 숨긴 PowerShell 명령을 실행합니다', technicalTitle: 'Encoded PowerShell command', severity: 'critical', confidence: 'high', contextualActionable: true, category: 'dangerous', artifact, lines, lineNumber, explanation: '실행 내용을 알아보기 어렵게 만든 명령은 악성 동작을 숨길 때 자주 사용됩니다.', recommendation: '공유하거나 실행하기 전에 평문 명령으로 바꾸고 동작 목적을 확인하세요.' }));
     }
 
     if (isDownloadExecuteChain(lines, index, artifact.name, sourceContext)) {
-      issues.push(createIssue({ ruleId: 'SCRIPT_DOWNLOAD_EXECUTE', title: '인터넷에서 파일을 받아 바로 실행합니다', technicalTitle: 'Download and execute chain', severity: 'critical', confidence: 'high', category: 'dangerous', artifact, lines, lineNumber, explanation: '다운로드 주소가 바뀌거나 침해되면 원하지 않는 프로그램이 PC에서 실행될 수 있습니다.', recommendation: '다운로드와 실행을 분리하고, 승인된 주소와 파일 해시를 확인하도록 변경하세요.' }));
+      issues.push(createIssue({ ruleId: 'SCRIPT_DOWNLOAD_EXECUTE', title: '인터넷에서 파일을 받아 바로 실행합니다', technicalTitle: 'Download and execute chain', severity: 'critical', confidence: 'high', contextualActionable: true, category: 'dangerous', artifact, lines, lineNumber, explanation: '다운로드 주소가 바뀌거나 침해되면 원하지 않는 프로그램이 PC에서 실행될 수 있습니다.', recommendation: '다운로드와 실행을 분리하고, 승인된 주소와 파일 해시를 확인하도록 변경하세요.' }));
     }
 
-    if (/\b(reg\s+add|sc\s+(create|config)|netsh\s+advfirewall|Set-ItemProperty|New-Service)\b/i.test(line)) {
-      issues.push(createIssue({ ruleId: 'SCRIPT_SYSTEM_CHANGE', title: 'PC의 중요한 설정을 변경합니다', technicalTitle: 'System configuration modification', severity: 'high', confidence: 'high', category: 'dangerous', artifact, lines, lineNumber, explanation: '레지스트리, 서비스 또는 방화벽 설정을 바꾸면 PC 전체 동작에 영향을 줄 수 있습니다.', recommendation: '변경 목적과 되돌리는 방법을 확인하고, 사내 공유 전 담당자의 검토를 받으세요.' }));
+    if (/\b(reg\s+add|sc\s+(create|config)|netsh\s+advfirewall|Set-ItemProperty|New-Service)\b/i.test(line) && isExecutedShellLine(line, artifact.name)) {
+      issues.push(createIssue({ ruleId: 'SCRIPT_SYSTEM_CHANGE', title: 'PC의 중요한 설정을 변경합니다', technicalTitle: 'System configuration modification', severity: 'high', confidence: 'high', contextualActionable: true, category: 'dangerous', artifact, lines, lineNumber, explanation: '레지스트리, 서비스 또는 방화벽 설정을 바꾸면 PC 전체 동작에 영향을 줄 수 있습니다.', recommendation: '변경 목적과 되돌리는 방법을 확인하고, 사내 공유 전 담당자의 검토를 받으세요.' }));
     }
 
     const deleteRisk = assessDestructiveDelete(line, lines, index, artifact.name, sourceContext);
     if (deleteRisk) {
-      issues.push(createIssue({ ruleId: 'SCRIPT_DESTRUCTIVE_DELETE', title: deleteRisk.severity === 'high' ? '외부 입력 또는 위험한 경로를 재귀 삭제합니다' : '재귀 삭제 대상 경로를 확인해야 합니다', technicalTitle: 'Recursive file deletion', severity: deleteRisk.severity, confidence: deleteRisk.confidence, category: 'dangerous', artifact, lines, lineNumber, explanation: deleteRisk.severity === 'high' ? '사용자 입력이나 루트 경로가 삭제 명령에 연결되어 중요한 파일이 대량 삭제될 수 있습니다.' : '삭제 명령이 변수 또는 일반 경로를 사용해 실제 대상을 검토해야 합니다.', recommendation: '삭제 경로를 빌드·캐시 폴더처럼 명확한 허용 목록으로 제한하고 실행 전에 확인하세요.' }));
+      issues.push(createIssue({ ruleId: 'SCRIPT_DESTRUCTIVE_DELETE', title: deleteRisk.severity === 'high' ? '외부 입력 또는 위험한 경로를 재귀 삭제합니다' : '재귀 삭제 대상 경로를 확인해야 합니다', technicalTitle: 'Recursive file deletion', severity: deleteRisk.severity, confidence: deleteRisk.confidence, contextualActionable: deleteRisk.severity === 'high', category: 'dangerous', artifact, lines, lineNumber, explanation: deleteRisk.severity === 'high' ? '사용자 입력이나 루트 경로가 삭제 명령에 연결되어 중요한 파일이 대량 삭제될 수 있습니다.' : '삭제 명령이 변수 또는 일반 경로를 사용해 실제 대상을 검토해야 합니다.', recommendation: '삭제 경로를 빌드·캐시 폴더처럼 명확한 허용 목록으로 제한하고 실행 전에 확인하세요.' }));
     }
 
     if (isSensitiveEnvFile(artifact.name) && trimmed && !trimmed.startsWith('#') && !issues.some((issue) => issue.ruleId === 'ENV_INCLUDED')) {
-      issues.push(createIssue({ ruleId: 'ENV_INCLUDED', title: '환경 설정 파일이 결과물에 포함되어 있습니다', technicalTitle: 'Environment file included', severity: 'high', confidence: 'high', category: 'secret', artifact, lines, lineNumber, explanation: '환경 설정 파일에는 API Key, 비밀번호, 내부 서버 주소가 포함될 수 있습니다.', recommendation: '.env 파일을 공유 ZIP에서 제외하고 .env.example만 제공하세요.' }));
+      const sensitiveEnv = containsSensitiveEnvValue(artifact.content);
+      issues.push(createIssue({ ruleId: 'ENV_INCLUDED', title: sensitiveEnv ? '민감한 환경 설정 파일이 결과물에 포함되어 있습니다' : '환경 설정 파일이 결과물에 포함되어 있습니다', technicalTitle: 'Environment file included', severity: sensitiveEnv ? 'high' : 'low', confidence: sensitiveEnv ? 'high' : 'medium', category: 'secret', artifact, lines, lineNumber, explanation: sensitiveEnv ? '환경 설정 파일에서 비밀번호나 토큰처럼 보이는 값이 확인되었습니다.' : '현재 민감값은 확인되지 않았지만 환경별 내부 주소나 설정이 포함될 수 있습니다.', recommendation: '.env 파일을 공유 ZIP에서 제외하고 .env.example만 제공하세요.' }));
     }
   });
 
@@ -305,7 +306,20 @@ function nearbyCode(lines: string[], index: number, radius = 5) {
 function isCommentOrPatternDefinition(line: string) {
   const trimmed = line.trim();
   return /^(?:\/\/|#|REM\b|::)/i.test(trimmed)
-    || /(?:return|const|let|var|pattern|regex|regexp)\b[^\n]*\/[^/\n]+\/[gimsuy]*/i.test(trimmed);
+    || /(?:return\s+|(?:const|let|var|pattern|regex|regexp)\b[^=]*=\s*)\/(?![/*])(?:\\.|[^/\n])+\/[gimsuy]*/i.test(trimmed);
+}
+
+function isInertShellDataLine(line: string, filename: string) {
+  const trimmed = line.trim();
+  if (/\.(bat|cmd)$/i.test(filename)) return /^(?:@?echo\b|set\s+(?:"?[^=]+=|\/a\b)|title\b|prompt\b)/i.test(trimmed);
+  if (/\.ps1$/i.test(filename)) return /^\$[A-Za-z_]\w*\s*=/.test(trimmed) || /^Write-(?:Host|Output|Verbose|Debug)\b/i.test(trimmed);
+  return false;
+}
+
+function isExecutedShellLine(line: string, filename: string) {
+  if (isCommentOrPatternDefinition(line) || isInertShellDataLine(line, filename)) return false;
+  if (/\.(bat|cmd|ps1)$/i.test(filename)) return true;
+  return /\b(?:exec|execSync|spawn|spawnSync|system|Popen|subprocess\.run|subprocess\.Popen)\s*\(/i.test(codeOutsideStrings(line));
 }
 
 function hasExternalInput(value: string, lines: string[], index: number) {
@@ -342,7 +356,7 @@ function assessEvalCandidate(line: string, lines: string[], index: number): Cont
 }
 
 function assessCommandExecution(line: string, lines: string[], index: number, filename: string): ContextAssessment | null {
-  if (isCommentOrPatternDefinition(line)) return null;
+  if (isCommentOrPatternDefinition(line) || isInertShellDataLine(line, filename)) return null;
   const lowerName = filename.toLowerCase();
   const isShellScript = /\.(bat|cmd|ps1)$/.test(lowerName);
   const outside = codeOutsideStrings(line);
@@ -359,9 +373,22 @@ function isLocalUrl(line: string) {
   return /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?(?:[/"'`]|$)/i.test(line);
 }
 
+function containsPlaceholderUrl(line: string) {
+  const url = line.match(/https?:\/\/[^\s"'`]+/i)?.[0] || '';
+  const pathAndQuery = url.replace(/^https?:\/\/[^/]+/i, '');
+  return Boolean(pathAndQuery && isObviousPlaceholder(pathAndQuery));
+}
+
 function isExecutableNetworkCall(line: string) {
   return !isCommentOrPatternDefinition(line)
+    && !containsPlaceholderUrl(line)
     && /\b(?:fetch|axios\.(?:get|post|put|patch)|WebSocket)\s*\(/i.test(codeOutsideStrings(line));
+}
+
+function isClientControlledAuthorization(line: string, _lines: string[], _index: number) {
+  if (isCommentOrPatternDefinition(line)) return false;
+  const clientStorage = /(?:localStorage|sessionStorage)\.(?:getItem|setItem)\s*\([^\n]*(?:admin|role|auth)|(?:isAdmin|adminRole)\b\s*=\s*[^\n]*(?:localStorage|sessionStorage|document\.cookie|location\.(?:search|hash))/i;
+  return clientStorage.test(line);
 }
 
 function isPossibleExternalDataTransfer(lines: string[], index: number) {
@@ -370,28 +397,30 @@ function isPossibleExternalDataTransfer(lines: string[], index: number) {
   const block = lines.slice(index, Math.min(lines.length, index + 8)).join('\n');
   if (!/\b(?:body|data)\s*:/i.test(block)) return false;
   const previous = lines.slice(Math.max(0, index - 12), index).join('\n');
-  const internalAssignment = previous.match(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:await\s+)?fetch\s*\(\s*[A-Za-z_$][\w$.]*|(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*await\s+[A-Za-z_$][\w$.]*\s*\(/i);
-  const variable = internalAssignment?.[1] || internalAssignment?.[2];
+  const internalAssignment = previous.match(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:await\s+)?fetch\s*\(\s*(?:["']\/(?!\/)|(?:INTERNAL|INTRANET|CORP)[A-Za-z0-9_$.]*)/i);
+  const variable = internalAssignment?.[1];
   return Boolean(variable && new RegExp(`\\b${variable.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(block));
 }
 
 function isExecutedPowerShellBypass(line: string, filename: string, sourceContext: SourceContext) {
-  if (!/(?:-ExecutionPolicy\s+Bypass|-EncodedCommand\b|-enc\b)/i.test(line) || isCommentOrPatternDefinition(line)) return false;
+  if (!/(?:-ExecutionPolicy\s+Bypass|-EncodedCommand\b|-enc\b)/i.test(line) || isCommentOrPatternDefinition(line) || isInertShellDataLine(line, filename)) return false;
   const isShellScript = /\.(bat|cmd|ps1)$/i.test(filename);
-  if (isShellScript) return sourceContext === 'runtime';
+  if (isShellScript) return sourceContext === 'runtime' && /(?:^|[;&|]\s*|(?:call|start|Start-Process)\s+|&\s*)powershell(?:\.exe)?\b/i.test(line.trim());
   const outside = codeOutsideStrings(line);
   return /\b(?:exec|execSync|spawn|spawnSync|system|Popen|subprocess\.run|subprocess\.Popen)\s*\(/i.test(outside);
 }
 
 function isDownloadExecuteChain(lines: string[], index: number, filename: string, sourceContext: SourceContext) {
-  if (sourceContext !== 'runtime' || isCommentOrPatternDefinition(lines[index])) return false;
+  if (sourceContext !== 'runtime' || isCommentOrPatternDefinition(lines[index]) || isInertShellDataLine(lines[index], filename)) return false;
   const window = lines.slice(index, Math.min(lines.length, index + 6)).join('\n');
   const isShellScript = /\.(bat|cmd|ps1)$/i.test(filename);
   if (isShellScript) {
-    return /(Invoke-WebRequest|curl(?:\.exe)?|wget)\b[\s\S]*?(?:\||&&|;|\n)[\s\S]*?(Start-Process|Invoke-Expression|iex|cmd(?:\.exe)?\s+\/c|\.exe\b)/i.test(window);
+    const sameLineChain = /(Invoke-WebRequest|curl(?:\.exe)?|wget)\b.*?(?:\||&&|;).*?(Start-Process|Invoke-Expression|iex|cmd(?:\.exe)?\s+\/c|\.exe\b)/i.test(lines[index]);
+    const savedTarget = lines[index].match(/(?:-OutFile\s+|-o\s+|>\s*)(["']?[^\s"']+["']?)/i)?.[1]?.replace(/["']/g, '');
+    return sameLineChain || Boolean(savedTarget && new RegExp(`(?:Start-Process|cmd(?:\\.exe)?\\s+\\/c|call|&)\\s+["']?${savedTarget.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(window));
   }
   const hasDownload = /(?:fetch|axios\.(?:get|post)|https?\.get)\s*\([^\n]*https?:\/\//i.test(window);
-  const hasSave = /(?:writeFile|writeFileSync|createWriteStream|Out-File|>-?\s*[^\s]+)/i.test(window);
+  const hasSave = /(?:writeFile|writeFileSync|createWriteStream)\s*\(/i.test(window);
   const hasExecute = /\b(?:exec|execSync|spawn|spawnSync|Start-Process)\s*\(/i.test(codeOutsideStrings(window));
   return hasDownload && hasSave && hasExecute;
 }
@@ -399,13 +428,15 @@ function isDownloadExecuteChain(lines: string[], index: number, filename: string
 function assessDestructiveDelete(line: string, lines: string[], index: number, filename: string, sourceContext: SourceContext): ContextAssessment | null {
   const deletePattern = /\b(?:del|erase|rmdir|rd)\b.*?[/\\]s\b|Remove-Item\b.*?-Recurse|rm\s+-rf/i;
   if (!deletePattern.test(line) || isCommentOrPatternDefinition(line)) return null;
+  if (isInertShellDataLine(line, filename)) return null;
   const isShellScript = /\.(bat|cmd|ps1)$/i.test(filename);
   const actuallyExecuted = isShellScript || /\b(?:exec|execSync|spawn|spawnSync|system)\s*\(/i.test(codeOutsideStrings(line)) || /"clean"\s*:/.test(line);
   if (!actuallyExecuted || sourceContext !== 'runtime') return null;
-  if (SAFE_DELETE_TARGET.test(line) && !EXTERNAL_INPUT_PATTERN.test(line)) return null;
+  const hasVariableTarget = /\$\{|\$[A-Za-z_]\w*|%[A-Za-z_]\w*%/i.test(line);
+  if (SAFE_DELETE_TARGET.test(line) && !EXTERNAL_INPUT_PATTERN.test(line) && !hasVariableTarget) return null;
   if (/(?:rm\s+-rf|Remove-Item[^\n]*-Recurse)[^\n]*(?:["']?\/(?:\*|["']|\s|$)|\.\.[/\\])/i.test(line)) return { severity: 'high', confidence: 'high' };
   if (hasExternalInput(line, lines, index)) return { severity: 'high', confidence: 'high' };
-  if (/\$\{|\$[A-Za-z_]\w*|%[A-Za-z_]\w*%/i.test(line)) return { severity: 'medium', confidence: 'medium' };
+  if (hasVariableTarget) return { severity: 'medium', confidence: 'medium' };
   return { severity: 'medium', confidence: 'low' };
 }
 
@@ -439,6 +470,7 @@ interface IssueInput {
   technicalTitle: string;
   severity: Severity;
   confidence: 'high' | 'medium' | 'low';
+  contextualActionable?: boolean;
   category: Category;
   artifact: ReadableArtifact;
   lines: string[];
@@ -449,7 +481,7 @@ interface IssueInput {
 
 function createIssue(input: IssueInput): SecurityIssue {
   const sourceContext = classifySourceContext(input.artifact.name);
-  const mustStayActionable = input.category === 'secret' || input.category === 'credential';
+  const mustStayActionable = input.category === 'secret' || input.category === 'credential' || input.contextualActionable;
   const contextualReference = sourceContext !== 'runtime' && !mustStayActionable;
   const effectiveSeverity: Severity = contextualReference ? 'low' : input.severity;
   const effectiveConfidence = contextualReference && input.confidence === 'high' ? 'medium' : input.confidence;
@@ -491,6 +523,12 @@ function isScoreRelevant(issue: SecurityIssue) {
   return issue.sourceContext === 'runtime' || issue.category === 'secret' || issue.category === 'credential';
 }
 
+function containsRealPrivateKeyBlock(content: string) {
+  const block = content.match(/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----([\s\S]*?)-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/i)?.[1] || '';
+  const payload = block.replace(/\s/g, '');
+  return payload.length >= 160 && /^[A-Za-z0-9+/=]+$/.test(payload) && !isObviousPlaceholder(payload);
+}
+
 function isObviousPlaceholder(value: string) {
   const normalized = value.toLowerCase().replace(/[\[\]\s_.-]+/g, '');
   return /^(?:test|test\d+)$/.test(normalized)
@@ -510,10 +548,11 @@ function shannonEntropy(value: string) {
 
 function isLikelyCredential(value: string) {
   const trimmed = value.trim();
-  if (isObviousPlaceholder(trimmed) || trimmed.length < 12) return false;
+  if (isObviousPlaceholder(trimmed) || trimmed.length < 16) return false;
   if (/^(?:true|false|null|undefined|password|secret|token)$/i.test(trimmed)) return false;
-  const hasMixedCharacterClasses = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter((pattern) => pattern.test(trimmed)).length >= 2;
-  return hasMixedCharacterClasses && (trimmed.length >= 20 || shannonEntropy(trimmed) >= 3.4);
+  if (/^(?:https?:\/\/|[\w.+-]+\/[\w.+-]+$|[A-Za-z]:[/\\]|[/\\]|\$\{|Bearer\s)/i.test(trimmed)) return false;
+  const characterClassCount = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter((pattern) => pattern.test(trimmed)).length;
+  return characterClassCount >= 3 && shannonEntropy(trimmed) >= 3.5;
 }
 
 function isLikelySlackWebhook(value: string) {
@@ -524,6 +563,16 @@ function isLikelySlackWebhook(value: string) {
 function isSensitiveEnvFile(filename: string) {
   const base = filename.toLowerCase().replace(/\\/g, '/').split('/').pop() || '';
   return base.startsWith('.env') && !/\.(example|sample|template)$/.test(base);
+}
+
+function containsSensitiveEnvValue(content: string) {
+  return content.split(/\r?\n/).some((line) => {
+    if (!line.trim() || line.trim().startsWith('#')) return false;
+    const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*["']?([^"'\r\n]+)["']?\s*$/);
+    if (!match || !/(?:password|passwd|secret|token|api_?key|private_?key|client_?secret)/i.test(match[1])) return false;
+    const value = match[2].trim();
+    return !isObviousPlaceholder(value) && (isLikelyCredential(value) || /^(?:sk-(?:proj-)?|AKIA|AIza|gh[opsu]_)/.test(value));
+  });
 }
 
 function redactSecrets(line: string, filename: string) {
