@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port=3005 --host=0.0.0.0",
-    "build": "vite build",
+    "build": "vite build --configLoader runner",
     "preview": "vite preview",
     "test:scanner": "tsx scripts/test-scanner.ts",
     "scan:self": "tsx scripts/self-scan.ts",

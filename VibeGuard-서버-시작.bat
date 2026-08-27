@@ -19,7 +19,7 @@ if not exist "%~dp0node_modules\vite\bin\vite.js" (
   exit /b 1
 )
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = Start-Process -FilePath 'npm.cmd' -ArgumentList 'run','dev' -WorkingDirectory '%~dp0' -WindowStyle Hidden -RedirectStandardOutput '%VIBEGUARD_OUT_LOG%' -RedirectStandardError '%VIBEGUARD_ERR_LOG%' -PassThru; Set-Content -LiteralPath '%VIBEGUARD_PID_FILE%' -Value $p.Id -Encoding ascii"
+powershell -NoProfile -Command "$p = Start-Process -FilePath 'npm.cmd' -ArgumentList 'run','dev' -WorkingDirectory '%~dp0' -WindowStyle Hidden -RedirectStandardOutput '%VIBEGUARD_OUT_LOG%' -RedirectStandardError '%VIBEGUARD_ERR_LOG%' -PassThru; Set-Content -LiteralPath '%VIBEGUARD_PID_FILE%' -Value $p.Id -Encoding ascii"
 
 powershell -NoProfile -Command "Start-Sleep -Seconds 3"
 for /f %%P in ('powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort %VIBEGUARD_PORT% -State Listen -ErrorAction SilentlyContinue ^| Select-Object -First 1 -ExpandProperty OwningProcess"') do set "VIBEGUARD_STARTED_PID=%%P"
